@@ -1,5 +1,7 @@
 Run python .\flappy_bird_v6_play.py
 
+https://docs.google.com/presentation/d/1QmJBoLjd7lCqaK8SakvsAAFlDFRR_EzajVqxlQBpZKQ/edit?usp=sharing
+^ Live Demo Video
 
 root/ <---- OG NEAT : https://github.com/techwithtim/NEAT-Flappy-Bird
 
