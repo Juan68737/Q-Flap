@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "torch",
-    "pygame",
+    "pygame-ce",   # drop-in replacement for pygame with wheels for newer Pythons (import pygame)
     "numpy",
     "pyyaml",
 ]
