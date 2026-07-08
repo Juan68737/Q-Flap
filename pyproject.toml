@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flappy-rl"
+version = "0.1.0"
+description = "Reinforcement learning agents that play Flappy Bird (DQN to start)."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch",
+    "pygame",
+    "numpy",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# Metric logging (TensorBoard). Training runs fine without it (falls back to console).
+logging = ["tensorboard"]
+# Process-priority niceness for the tabular Q-learning workers.
+extras = ["psutil"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# src/ layout: the package is only importable after `pip install -e .`
+# — this keeps laptop, CI, notebooks and the debugger on the exact same code path.
