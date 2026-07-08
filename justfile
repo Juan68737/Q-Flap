@@ -7,10 +7,15 @@
 #     python -m venv .venv && .venv\Scripts\pip install -e ".[dev,logging]"
 
 # OS-aware venv python location
-venv_py := if os_family() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
+bindir  := if os_family() == "windows" { "Scripts" } else { "bin" }
+pyexe   := if os_family() == "windows" { "python.exe" } else { "python" }
+venv_py := ".venv" / bindir / pyexe
 sys_py  := if os_family() == "windows" { "python" } else { "python3" }
-# use the venv's python if it exists, else the system one
-py := if path_exists(venv_py) == "true" { venv_py } else { sys_py }
+active  := env_var_or_default("VIRTUAL_ENV", "")
+# pick python: an activated venv wins, else .venv, else the system python
+py := if active != "" { active / bindir / pyexe } \
+      else if path_exists(venv_py) == "true" { venv_py } \
+      else { sys_py }
 
 # list all recipes
 default:
@@ -28,21 +33,25 @@ bootstrap:
     echo ""
     echo "Bootstrapped. Activate with:  source .venv/bin/activate"
 
-# create/ensure a venv (.venv, or .venvs/<name> if given) and install the project
+# Join a venv if it exists, else create+install it, then print the activate line.
+# To actually JOIN it in your shell, eval the output:
+#     eval "$(just venv exp1)"
+# One-time convenience — add to ~/.zshrc so `jvenv exp1` creates-or-joins:
+#     jvenv() { eval "$(just venv "$@")"; }
 venv name="":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "{{name}}" ]; then dir=".venv"; else dir=".venvs/{{name}}"; fi
-    if [ ! -d "$dir" ]; then
-        echo "creating $dir ..."
-        {{sys_py}} -m venv "$dir"
-        "$dir/bin/pip" install --upgrade pip >/dev/null
-        "$dir/bin/pip" install -e ".[dev,logging]"
+    # progress goes to stderr so stdout is ONLY the command to eval
+    if [ -d "$dir" ]; then
+        echo "joining existing $dir" >&2
     else
-        echo "$dir already exists"
+        echo "creating $dir ..." >&2
+        {{sys_py}} -m venv "$dir" >&2
+        "$dir/{{bindir}}/pip" install --upgrade pip >/dev/null 2>&1 || true
+        "$dir/{{bindir}}/pip" install -e ".[dev,logging]" >&2
     fi
-    echo ""
-    echo "activate it:  source $dir/bin/activate"
+    echo "source $dir/{{bindir}}/activate"
 
 # list the venvs you have
 venvs:

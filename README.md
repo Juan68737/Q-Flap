@@ -80,11 +80,24 @@ source .venv/bin/activate   # optional — the just recipes use .venv automatica
 - If `torch` fails to install on a brand-new Python, use a Python 3.12/3.13
   interpreter, or `pip install torch` on its own first.
 - Managing environments:
-  - `just venv` — (re)create the default `.venv`
-  - `just venv experimentA` — create/install a named venv at `.venvs/experimentA`
   - `just venvs` (or `just view`) — list your venvs
+  - **Create-or-join** a venv (named venvs live in `.venvs/<name>`):
+    ```bash
+    eval "$(just venv)"          # default .venv: create if missing, then activate
+    eval "$(just venv exp1)"     # .venvs/exp1: create if missing, then activate
+    ```
+    `just venv <name>` creates+installs the venv if it doesn't exist, and either
+    way prints the `source …` line. A recipe can't activate your shell for you,
+    so you `eval` its output. For a one-word command, add to `~/.zshrc`:
+    ```bash
+    jvenv() { eval "$(just venv "$@")"; }   # then:  jvenv exp1
+    ```
+  - Every recipe automatically uses your **activated** venv if you have one,
+    else `.venv`, else system python.
   - venv layout differs by OS (`.venv/bin` on mac/Linux, `.venv/Scripts` on
-    Windows); the recipes handle the python path automatically.
+    Windows); the recipes handle the python path automatically. (The
+    create/activate helpers assume a Unix shell — see the justfile header for
+    the Windows note.)
 
 Under the hood `just` calls a Typer CLI you can also use directly:
 `flappy-rl train`, `flappy-rl eval 5`.
