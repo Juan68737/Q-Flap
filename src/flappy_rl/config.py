@@ -49,6 +49,7 @@ class Config:
     reward_flap_pen: float
     center_bonus_w: float
     bonus_dx_window: float
+    pass_edge_floor: float      # fraction of the pass reward earned at the gap edge (middle earns full)
 
     # network
     state_dim: int

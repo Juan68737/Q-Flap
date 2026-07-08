@@ -29,12 +29,14 @@ eps_end: 0.05
 eps_decay_steps: 6000000
 
 # --- reward shaping (consumed by envs/wrappers.py) ---
+# Tiered by where the bird passes: die = bad, edge-pass = ok, middle-pass = perfect.
 reward_death: -1.0
-reward_pass_pipe: 10.0
+reward_pass_pipe: 1.0         # reward for a *middle* pass; edge passes earn pass_edge_floor of it
+pass_edge_floor: 0.5          # edge-pass is worth 50% of a middle-pass (still positive = "ok")
 reward_alive: 0.01
 reward_flap_pen: -0.003
-center_bonus_w: 0.90          # bonus for sitting near the gap center
-bonus_dx_window: 0.35         # only pay the center bonus within this horizontal window
+center_bonus_w: 0.30          # gentle approach guidance toward the middle (positive only; edge = 0 = ok)
+bonus_dx_window: 0.50         # horizontal window (fraction of screen) over which approach guidance applies
 
 # --- network (must match the saved weights: MLP state_dim -> hidden -> hidden -> n_actions) ---
 state_dim: 7
