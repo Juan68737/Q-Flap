@@ -32,12 +32,12 @@ import random
 import time
 import json
 import importlib
-import argparse
 from pathlib import Path
 from typing import Tuple, Dict, Any, List, Optional
 
 import numpy as np
 import multiprocessing as mp
+import typer
 
 # ==================== HYPERPARAMETERS ====================
 LEARNING_RATE = 0.15
@@ -537,37 +537,35 @@ def parse_affinity(s: Optional[str]) -> Optional[List[int]]:
             out.append(int(part))
     return out
 
-def main():
+def main(
+    workers: int = typer.Option(None, "--workers", help="parallel workers (default: all cores)"),
+    episodes_per_worker: int = typer.Option(TOTAL_EPISODES_PER_WORKER, "--episodes-per-worker"),
+    sync_interval: int = typer.Option(SYNC_INTERVAL, "--sync-interval"),
+    max_steps: int = typer.Option(MAX_STEPS, "--max-steps"),
+    nice: int = typer.Option(DEFAULT_NICE_VALUE, "--nice"),
+    ionice: bool = typer.Option(False, "--ionice"),
+    affinity: str = typer.Option(None, "--affinity", help="CPU affinity, e.g. '0-3,6'"),
+    maxtasksperchild: int = typer.Option(DEFAULT_MAXTASKSPERCHILD, "--maxtasksperchild"),
+):
+    """Train tabular Q-learning agents (multiprocess) and export Q-tables."""
     try:
         mp.set_start_method("spawn")
     except RuntimeError:
         pass
-    
-    ap = argparse.ArgumentParser(description="Q-learning with Easy Mode")
-    ap.add_argument("--workers", type=int, default=None)
-    ap.add_argument("--episodes-per-worker", type=int, default=TOTAL_EPISODES_PER_WORKER)
-    ap.add_argument("--sync-interval", type=int, default=SYNC_INTERVAL)
-    ap.add_argument("--max-steps", type=int, default=MAX_STEPS)
-    ap.add_argument("--nice", type=int, default=DEFAULT_NICE_VALUE)
-    ap.add_argument("--ionice", action="store_true")
-    ap.add_argument("--affinity", type=str, default=None)
-    ap.add_argument("--maxtasksperchild", type=int, default=DEFAULT_MAXTASKSPERCHILD)
-    args = ap.parse_args()
-    
-    requested = args.workers if args.workers is not None else mp.cpu_count()
+
+    requested = workers if workers is not None else mp.cpu_count()
     num_workers = _clamp_workers(requested)
-    affinity = parse_affinity(args.affinity)
-    
+
     train_multiprocess(num_workers=num_workers,
-                       total_episodes_per_worker=args.episodes_per_worker,
-                       sync_interval=args.sync_interval,
-                       max_steps=args.max_steps,
-                       nice_value=args.nice,
-                       ionice_flag=args.ionice,
-                       affinity=affinity,
+                       total_episodes_per_worker=episodes_per_worker,
+                       sync_interval=sync_interval,
+                       max_steps=max_steps,
+                       nice_value=nice,
+                       ionice_flag=ionice,
+                       affinity=parse_affinity(affinity),
                        headless=True,
-                       maxtasksperchild=args.maxtasksperchild)
+                       maxtasksperchild=maxtasksperchild)
 
 if __name__ == "__main__":
     mp.freeze_support()
-    main()
+    typer.run(main)
