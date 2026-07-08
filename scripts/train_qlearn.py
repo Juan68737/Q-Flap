@@ -1,12 +1,18 @@
-# file: qlearn_easy_improved.py
+# Tabular Q-learning trainer (multiprocess) for Flappy Bird.
+#
+# This is the "classic" bins-and-a-Q-table approach, kept as a second algorithm
+# alongside the DQN (scripts/train.py). It is intentionally self-contained
+# rather than plugged into the agents/ interface, because it has no replay
+# buffer or neural network. Outputs land in experiments/qlearn/.
+#
+#     pip install -e .
+#     python scripts/train_qlearn.py --workers 8 --episodes-per-worker 5000
 """
-Q-learning trainer with EASY MODE and IMPROVED EXPLORATION
+Tabular Q-learning trainer with slow epsilon decay for thorough exploration.
 
-Key improvements over qlearn_easy_mode.py:
-1. MUCH slower epsilon decay (0.9995 vs 0.99)
-2. Lower minimum epsilon (0.01 vs 0.05)
-3. More training episodes (5000 vs 3000)
-4. This allows ~4000 episodes of meaningful exploration!
+Notes:
+- Slow epsilon decay (0.9995) and a low floor (0.01) => ~4000 episodes of
+  meaningful exploration across 5000 episodes per worker.
 
 Epsilon schedule:
 - Episode 0: 50%
@@ -18,7 +24,7 @@ Epsilon schedule:
 - Episode 5000: 4%
 """
 
-# Edit flappy_bird_easy.py to change difficulty settings!
+# Edit src/flappy_rl/envs/flappy.py to change difficulty settings!
 
 import math
 import os
@@ -68,7 +74,7 @@ USE_IONICE = False
 DEFAULT_MAXTASKSPERCHILD = 200
 
 # Export
-EXPORT_DIR_NAME = "exports_easy_improved"
+EXPORT_DIR_NAME = "experiments/qlearn"
 SAVE_BEST_Q = True
 SAVE_AVG_Q = True
 SAVE_REPLAY = True
@@ -109,8 +115,7 @@ def _pool_initializer(nice_value: int, ionice_flag: bool, affinity: Optional[Lis
     set_process_priority(nice_value, ionice_flag, affinity)
 
 def load_fb_module():
-    # Use easy mode!
-    fb = importlib.import_module("flappy_bird_easy")
+    fb = importlib.import_module("flappy_rl.envs.flappy")
     return fb
 
 def make_env_objects(fb):
@@ -458,7 +463,7 @@ def train_multiprocess(num_workers: Optional[int] = None,
         save_path = EXPORT_DIR / "replay_best.npz"
         best_replay_data.save(save_path, meta)
         print(f"\n🎥 BEST replay saved (score {best_score}) -> {save_path}")
-        print(f"   View with: python view_qlearn_replay.py {save_path} --fps 30 --loop")
+        print(f"   (replay is a JSON blob inside the .npz under key 'data')")
     
     return global_best, gQ
 
