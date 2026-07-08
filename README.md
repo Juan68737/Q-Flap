@@ -16,11 +16,15 @@ Game sprites/physics originally from
 
 ## TL;DR
 
+Everything runs through [`just`](https://github.com/casey/just) (`brew install just`):
+
 ```bash
-pip install -e .            # one-time setup
-python scripts/evaluate.py  # watch the trained agent play right now
-python scripts/train.py --config configs/dqn.yaml   # train your own
+just bootstrap     # create .venv and install everything (one time)
+just eval 5        # watch the trained agent play 5 games
+just train         # train your own and replace models/dqn_final.pth
 ```
+
+`just` (no args) lists every command.
 
 ---
 
@@ -48,104 +52,119 @@ When you train, this loop runs millions of times:
 - **State** = 7 numbers describing the bird vs. the next pipe (height, velocity,
   distance to pipe, gap position…). Computed by `envs/wrappers.py:get_state`.
 - **Action** = flap or don't (2 choices).
-- **Reward** = +10 for passing a pipe, a small bonus for staying centered,
-  −1 for dying. Defined in `envs/wrappers.py:shaped_reward`.
+- **Reward** = tiered by *where* the bird flies: dying is negative, passing near
+  an edge is a small positive ("ok"), passing through the **middle** of the gap
+  is the full reward ("perfect"). Defined in `envs/wrappers.py:shaped_reward`.
 
-The replay buffer is **temporary, in-memory data** — it's discarded when
-training ends. What gets *saved* to disk is the trained neural network (a
-`.pth` file). **That `.pth` file is the only thing the game needs to play** —
-it's the agent's "brain."
+The replay buffer is **temporary, in-memory data** — discarded when training
+ends. What gets *saved* to disk is the trained neural network (a `.pth` file).
+**That `.pth` file is the only thing the game needs to play** — it's the agent's
+"brain."
 
 ```
-playing ─► experiences ─► replay buffer (RAM) ─► trained network ─► saved as .pth ─► evaluate.py plays with it
+playing ─► experiences ─► replay buffer (RAM) ─► trained network ─► saved as .pth ─► `just eval` plays it
 ```
 
 ---
 
-## Install (one time)
+## Setup
+
+Install the [`just`](https://github.com/casey/just) task runner, then bootstrap:
 
 ```bash
-cd Flap_Flap
-python3 -m venv venv && source venv/bin/activate   # optional but recommended
-pip install -e .            # installs the flappy_rl package + torch, pygame, numpy, pyyaml
+brew install just     # macOS  (Linux: see just's README; Windows: scoop install just)
+just bootstrap        # creates .venv and installs the project + extras
+source .venv/bin/activate   # optional — the just recipes use .venv automatically
 ```
 
-`pip install -e .` is what makes `import flappy_rl...` work everywhere (scripts,
-tests, notebooks, debugger) with no `sys.path` hacks. Do it once.
+- If `torch` fails to install on a brand-new Python, use a Python 3.12/3.13
+  interpreter, or `pip install torch` on its own first.
+- Managing environments:
+  - `just venv` — (re)create the default `.venv`
+  - `just venv experimentA` — create/install a named venv at `.venvs/experimentA`
+  - `just venvs` (or `just view`) — list your venvs
+  - venv layout differs by OS (`.venv/bin` on mac/Linux, `.venv/Scripts` on
+    Windows); the recipes handle the python path automatically.
 
-- CPU / macOS: if the `torch` install errors, install it plainly first
-  (`pip install torch`), then re-run `pip install -e .`.
-- Optional extras: `pip install -e ".[logging,dev]"` (TensorBoard + pytest).
+Under the hood `just` calls a Typer CLI you can also use directly:
+`flappy-rl train`, `flappy-rl eval 5`.
 
 ---
 
 ## Walkthrough: your first few minutes
 
-**1. Watch the pre-trained agent play** (nothing to train — uses the shipped model):
+**1. Watch the pre-trained agent** (uses the shipped `models/dqn_final.pth`):
 
 ```bash
-python scripts/evaluate.py
+just eval 5           # 5 games, windowed
+# just play           # same idea, quick 5-game watch
 ```
 
-A window opens and the bird flies through pipes for 50 games, printing each
-score and a final average/best.
-
-**2. Do a *short* training run** to see the whole pipeline produce a model.
-Full training is ~10M steps (hours on CPU); for a first look, lower it. Either
-edit `total_env_steps` in `configs/dqn.yaml` to `200000`, or just run it and
-stop early with `Ctrl-C` (it saves on interrupt):
+**2. Do a short training run** to see the whole pipeline produce a model. Full
+training is ~10M steps (hours on CPU); for a first look, cap it with `--steps`
+and save it under a throwaway name so it doesn't touch your good model:
 
 ```bash
-python scripts/train.py --config configs/dqn.yaml
+just train test1 --steps 200000
 ```
 
-You'll see console lines like:
+You'll see lines like:
 
 ```
-Device: cpu | run dir: experiments/dqn_baseline_2026-07-07_23-40-12
+Device: cpu | run dir: experiments/dqn_baseline_2026-07-08_00-00-00
 [step    120000] loss=0.0123 mean_q=2.41 eps=0.83 buffer=120000 avg_episode_score=0.4
 [step    240000] loss=0.0098 mean_q=3.02 eps=0.71 buffer=240000 avg_episode_score=1.1
 ```
 
-- `eps` = how random it still is (starts at 1.0 = all random, decays as it learns).
-- `avg_episode_score` = pipes cleared per game — this is the number you want going up.
+- `eps` = how random it still is (1.0 = all random, decays as it learns).
+- `avg_episode_score` = pipes cleared per game — the number you want going up.
 
-**3. Find what it produced.** Every run gets its own timestamped folder:
+**3. It automatically keeps the best model.** Training tracks the best-scoring
+snapshot (so a late collapse can't cost you a good model) and promotes it:
 
 ```
-experiments/dqn_baseline_2026-07-07_23-40-12/
-├── config.json          # exact hyperparameters + git commit used (reproducible)
+experiments/dqn_baseline_<timestamp>/
+├── config.json          # exact hyperparameters + git commit (reproducible)
 ├── tb/                  # TensorBoard logs
-├── steps_500000.pth     # checkpoint saved every save_every_steps
-├── final.pth            # full checkpoint (weights + optimizer + RNG — for resuming)
-└── policy_final.pth     # weights only — THIS is what evaluate.py loads
+├── steps_500000.pth     # periodic full checkpoints
+├── best.pth             # best snapshot by score  ← promoted for you
+├── final.pth            # last full checkpoint (for resuming)
+└── policy_final.pth     # last weights only
 ```
 
-**4. Watch *your* newly trained agent:**
+`just train test1` copies `best.pth` to `models/test1.pth`.
+
+**4. Watch your model, then bless it if it's good:**
 
 ```bash
-python scripts/evaluate.py --model experiments/dqn_baseline_2026-07-07_23-40-12/policy_final.pth
+just eval 5 test1.pth        # watch models/test1.pth
+just train                   # a full run that replaces models/dqn_final.pth
 ```
 
-**5. Like it? Make it the default** the game uses:
-
-```bash
-cp experiments/dqn_baseline_<timestamp>/policy_final.pth models/dqn_final.pth
-```
-
-> `experiments/` is git-ignored on purpose — it's regenerable output, not source.
+`just train` (no name) promotes the best model straight to `models/dqn_final.pth`
+— the default everything plays. `experiments/` is git-ignored (regenerable
+output); `models/` is version-tracked (the models you chose to keep).
 
 ---
 
-## Watch training live (optional)
+## Command reference
 
-```bash
-pip install -e ".[logging]"       # adds tensorboard
-tensorboard --logdir experiments  # open the URL it prints
-```
+| Command | What it does |
+|---|---|
+| `just` | list all recipes |
+| `just bootstrap` | create `.venv` + install everything |
+| `just eval 5` | play 5 games with `models/dqn_final.pth` |
+| `just eval 6 dqn2.pth` | play 6 games with `models/dqn2.pth` |
+| `just play` | quick 5-game windowed watch |
+| `just train` | train, replace `models/dqn_final.pth` with the best snapshot |
+| `just train dqn2` | train, save best to `models/dqn2.pth` (leaves dqn_final alone) |
+| `just train dqn2 --steps 200000` | shorter run |
+| `just train-qlearn --workers 8` | run the tabular Q-learning experiment |
+| `just test` | run the test suite |
+| `just venv NAME` / `just venvs` | manage / list virtualenvs |
+| `just clean` | delete generated runs under `experiments/` |
 
-Charts for loss, mean Q-value, epsilon, and average episode score. Without it,
-the same numbers print to the console.
+Watch training live: `tensorboard --logdir experiments`.
 
 ---
 
@@ -155,10 +174,10 @@ the same numbers print to the console.
 
 | Want to… | Change |
 |---|---|
-| Train shorter (quick test) | lower `total_env_steps` |
+| Train shorter (quick test) | lower `total_env_steps` (or pass `--steps`) |
 | Learn faster (riskier) | raise `lr` |
 | Explore more / longer | raise `eps_decay_steps` |
-| Change the reward | `reward_pass_pipe`, `center_bonus_w`, … |
+| Reward the middle harder | raise `center_bonus_w`, lower `pass_edge_floor` |
 | More parallel games | `num_envs` |
 
 To make the **game itself** easier/harder, edit the constants at the top of
@@ -167,24 +186,16 @@ To make the **game itself** easier/harder, edit the constants at the top of
 
 ---
 
-## The tabular Q-learning experiment
-
-```bash
-python scripts/train_qlearn.py --workers 8 --episodes-per-worker 5000
-# -> writes Q-tables (.npy) to experiments/qlearn/
-```
-
-Note: earlier runs of this one scored 0 pipes — it's kept for you to improve.
-The **DQN** is the approach that actually plays well.
-
----
-
 ## Project layout
 
 ```
+justfile                    # task runner: bootstrap / train / eval / venv / test
 configs/dqn.yaml            # ALL hyperparameters (no magic numbers in code)
 src/flappy_rl/
+  cli.py                    # Typer command line (flappy-rl train / eval)
   config.py                 # YAML -> frozen Config dataclass
+  training.py               # DQN training loop (+ best-checkpoint tracking & promote)
+  evaluation.py             # play/eval loop
   envs/
     flappy.py               # raw game: Bird / Pipe / Base physics + rendering
     wrappers.py             # observation (get_state) + reward shaping  ← the "data" definition
@@ -198,10 +209,7 @@ src/flappy_rl/
     seeding.py              # seed python / numpy / torch in one place
     checkpoint.py           # run dirs + self-describing checkpoints (weights+opt+rng+config+git sha)
     logging.py              # scalar logging (TensorBoard if installed, else console)
-scripts/
-  train.py                  # thin DQN training loop: act, step, store, update, log, save
-  evaluate.py               # load a checkpoint, play greedy episodes with a window
-  train_qlearn.py           # tabular Q-learning trainer
+scripts/train_qlearn.py     # tabular Q-learning trainer (the non-DQN approach)
 tests/test_dqn_smoke.py     # update runs without NaN + loss decreases on a trivial task
 models/dqn_final.pth        # curated, version-tracked trained weights ("the brain")
 imgs/                       # sprites
@@ -226,12 +234,3 @@ change all three:
 - `configs/dqn.yaml` → `state_dim`, `hidden`, `n_actions`
 - `src/flappy_rl/envs/wrappers.py` → `get_state` (produces the 7 features)
 - `src/flappy_rl/models/networks.py` → `QNet` (consumes them)
-
----
-
-## Tests
-
-```bash
-pip install -e ".[dev]"
-pytest      # checks the DQN update runs without NaN and the loss goes down
-```
