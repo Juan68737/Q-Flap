@@ -30,20 +30,28 @@ def load_policy(model_path, cfg, device):
     return net
 
 
-def run_episode(net, win, clock, fps, bg_img, device):
+def run_episode(net, win, clock, fps, bg_img, device, action_repeat, max_steps):
     bird, base, pipes = Bird(230, 350), Base(FLOOR), [Pipe(700)]
     score, done = 0, False
-    while not done:
+    frame, action = 0, 0
+    # A well-trained agent can survive indefinitely, so cap the episode length
+    # (max_steps <= 0 means unlimited).
+    while not done and (max_steps <= 0 or frame < max_steps):
         clock.tick(fps)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 raise SystemExit
 
-        obs = torch.as_tensor(get_state(bird, pipes), dtype=torch.float32,
-                              device=device).unsqueeze(0)
-        with torch.no_grad():
-            action = int(net(obs).argmax(1).item())
+        # Re-decide every `action_repeat` frames — same rhythm the agent trained
+        # with. Between decisions the chosen action is held (jump() fires each
+        # frame it's active, exactly as in training).
+        if frame % action_repeat == 0:
+            obs = torch.as_tensor(get_state(bird, pipes), dtype=torch.float32,
+                                  device=device).unsqueeze(0)
+            with torch.no_grad():
+                action = int(net(obs).argmax(1).item())
+        frame += 1
         if action == 1:
             bird.jump()
 
@@ -83,11 +91,16 @@ def main():
     ap = argparse.ArgumentParser(description="Watch a trained DQN play Flappy Bird")
     ap.add_argument("--model", default="models/dqn_final.pth")
     ap.add_argument("--config", default="configs/dqn.yaml")
-    ap.add_argument("--episodes", type=int, default=50)
+    ap.add_argument("--episodes", type=int, default=10)
     ap.add_argument("--fps", type=int, default=45)
+    ap.add_argument("--max-steps", type=int, default=2000,
+                    help="cap per episode so a strong agent doesn't run forever; 0 = unlimited")
+    ap.add_argument("--action-repeat", type=int, default=None,
+                    help="frames each action is held; defaults to the config value used in training")
     args = ap.parse_args()
 
     cfg = Config.from_yaml(args.config)
+    action_repeat = args.action_repeat if args.action_repeat is not None else cfg.action_repeat
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     pygame.init()
@@ -98,11 +111,11 @@ def main():
         pygame.image.load(str(ASSETS_DIR / "bg.png")), (WIN_WIDTH, WIN_HEIGHT))
 
     net = load_policy(args.model, cfg, device)
-    print(f"Loaded {args.model} on {device}")
+    print(f"Loaded {args.model} on {device} (action_repeat={action_repeat})")
 
     scores = []
     for i in range(args.episodes):
-        score = run_episode(net, win, clock, args.fps, bg_img, device)
+        score = run_episode(net, win, clock, args.fps, bg_img, device, action_repeat, args.max_steps)
         scores.append(score)
         print(f"Episode {i + 1}/{args.episodes}: score = {score}")
 
