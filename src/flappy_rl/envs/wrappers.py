@@ -41,25 +41,41 @@ def get_state(bird, pipes) -> np.ndarray:
 
 
 def shaped_reward(cfg, alive: bool, passed_pipe: bool, bird, pipes, action: int) -> float:
-    """Reward = alive bonus + pass bonus + centering bonus - flap penalty - death.
+    """Tiered reward based on where the bird is in the pipe gap (its y vs. the
+    gap center, gated by its x distance to the pipe):
 
-    `cfg` supplies the shaping weights (see configs/dqn.yaml). Clipped to [-1, 1].
+        die                -> reward_death            ("bad")
+        pass near an edge  -> reward_pass_pipe * pass_edge_floor   ("ok")
+        pass in the middle -> reward_pass_pipe                     ("perfect")
+
+    Plus a gentle positive nudge toward the middle during the approach (edge = 0
+    = still ok). All clipped to [-1, 1]. Weights live in configs/dqn.yaml.
     """
+    if not alive:
+        return float(np.clip(cfg.reward_alive + cfg.reward_death, -1.0, 1.0))
+
     r = cfg.reward_alive
-    if passed_pipe:
-        r += cfg.reward_pass_pipe
     if action == 1:
         r += cfg.reward_flap_pen
+
     if pipes:
         p = pipes[next_pipe_idx(bird, pipes)]
-        dx = (p.x - bird.x) / WIN_WIDTH
-        if 0.0 <= dx <= cfg.bonus_dx_window:
-            gap_center = 0.5 * (p.height + p.bottom)
-            gap_half = max(1.0, (p.bottom - p.height) / 2.0)
-            dist = abs(bird.y - gap_center) / gap_half
-            bonus = cfg.center_bonus_w * (1.0 - min(1.0, dist))
-            proximity = 1.0 - (dx / cfg.bonus_dx_window)
-            r += bonus * proximity
-    if not alive:
-        r += cfg.reward_death
+        gap_center = 0.5 * (p.height + p.bottom)
+        gap_half = max(1.0, (p.bottom - p.height) / 2.0)
+        dist = min(1.0, abs(bird.y - gap_center) / gap_half)  # 0 = dead center, 1 = at edge
+        centeredness = 1.0 - dist                             # 1 = middle, 0 = edge (edge stays "ok")
+
+        if passed_pipe:
+            # scale the pass reward by where it went through the gap
+            scale = cfg.pass_edge_floor + (1.0 - cfg.pass_edge_floor) * centeredness
+            r += cfg.reward_pass_pipe * scale
+        else:
+            # gentle guidance toward the middle, strongest right at the pipe
+            dx = (p.x - bird.x) / WIN_WIDTH
+            if 0.0 <= dx <= cfg.bonus_dx_window:
+                proximity = 1.0 - (dx / cfg.bonus_dx_window)
+                r += cfg.center_bonus_w * centeredness * proximity
+    elif passed_pipe:
+        r += cfg.reward_pass_pipe
+
     return float(np.clip(r, -1.0, 1.0))
