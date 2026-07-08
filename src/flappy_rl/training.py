@@ -9,11 +9,18 @@ models/<name>.pth.
 
 import os
 import shutil
+import time
 from collections import deque
 from pathlib import Path
 
 import numpy as np
 import torch
+
+
+def _fmt_secs(s: float) -> str:
+    s = int(s)
+    h, m = s // 3600, (s % 3600) // 60
+    return f"{h}h{m:02d}m" if h else f"{m}m{s % 60:02d}s"
 
 from .config import Config
 from .agents.dqn import DQNAgent
@@ -52,6 +59,11 @@ def train(cfg: Config, out_model: Path | None = None) -> Path:
     best_avg = -1.0
     best_path = run_dir / "best.pth"
 
+    start_t = time.time()
+    last_hb = start_t
+    print(f"Training for {cfg.total_env_steps:,} steps "
+          f"(first {cfg.warmup_steps:,} are silent warmup). Ctrl-C saves and stops.", flush=True)
+
     try:
         while global_steps < cfg.total_env_steps:
             warming_up = global_steps < cfg.warmup_steps
@@ -73,6 +85,20 @@ def train(cfg: Config, out_model: Path | None = None) -> Path:
                     env_scores[i] = 0
             vec.states = next_states
             global_steps += cfg.num_envs
+
+            # live progress heartbeat (~every 5s) so it's never a silent screen
+            now = time.time()
+            if now - last_hb >= 5.0:
+                last_hb = now
+                elapsed = now - start_t
+                sps = global_steps / max(elapsed, 1e-9)
+                eta = (cfg.total_env_steps - global_steps) / max(sps, 1e-9)
+                pct = 100.0 * global_steps / cfg.total_env_steps
+                avg = float(np.mean(recent_scores)) if recent_scores else 0.0
+                phase = "warmup" if warming_up else "train "
+                print(f"  [{phase}] {global_steps:>10,}/{cfg.total_env_steps:,} ({pct:4.1f}%) | "
+                      f"{sps:5.0f} steps/s | elapsed {_fmt_secs(elapsed)} | eta {_fmt_secs(eta)} | "
+                      f"avgScore {avg:.2f}", flush=True)
 
             # updates proportional to data collected
             if not warming_up:
