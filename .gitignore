@@ -1,2 +1,22 @@
-venv
-__pycache__
+# --- artifacts: anything you could regenerate by running code ---
+experiments/*
+!experiments/.gitkeep
+
+# legacy output dirs (if you regenerate them)
+checkpoints/
+exports/
+
+# --- python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- os ---
+.DS_Store
+
+# Trained weights are tracked ONLY under models/ (curated, small, versioned).
+*.pth
+!models/*.pth
