@@ -1,31 +1,27 @@
-"""Thin DQN training entrypoint.
+"""DQN training loop.
 
-    pip install -e .
-    python scripts/train.py --config configs/dqn.yaml
-
-The loop reads like pseudocode: act -> step envs -> store -> maybe update ->
-log -> checkpoint. All the real logic (action selection, the update rule) lives
-in the agent; all hyperparameters live in the config.
+Reads like pseudocode: act -> step envs -> store -> maybe update -> log ->
+checkpoint. All real logic lives in the agent; all hyperparameters in the
+config. Tracks the best-performing snapshot (by rolling average score) so a late
+collapse can't cost you the good model, and optionally promotes it to
+models/<name>.pth.
 """
 
 import os
-# Train headless: no game window. Must be set before importing the env.
-os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
-
-import argparse
+import shutil
 from collections import deque
+from pathlib import Path
 
 import numpy as np
 import torch
 
-from flappy_rl.config import Config
-from flappy_rl.agents.dqn import DQNAgent
-from flappy_rl.buffers.replay import ReplayBuffer
-from flappy_rl.envs.vec_env import VecEnv
-from flappy_rl.utils.seeding import seed_everything
-from flappy_rl.utils import checkpoint as ckpt
-from flappy_rl.utils.logging import Logger
+from .config import Config
+from .agents.dqn import DQNAgent
+from .buffers.replay import ReplayBuffer
+from .envs.vec_env import VecEnv
+from .utils.seeding import seed_everything
+from .utils import checkpoint as ckpt
+from .utils.logging import Logger
 
 
 def epsilon_by_step(t: int, cfg: Config) -> float:
@@ -34,7 +30,9 @@ def epsilon_by_step(t: int, cfg: Config) -> float:
     return cfg.eps_start + (cfg.eps_end - cfg.eps_start) * (t / float(cfg.eps_decay_steps))
 
 
-def train(cfg: Config):
+def train(cfg: Config, out_model: Path | None = None) -> Path:
+    """Run training. Returns the run directory. If out_model is given, the best
+    snapshot is copied there (weights-only, ready for evaluation)."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seed_everything(cfg.seed)
 
@@ -51,6 +49,8 @@ def train(cfg: Config):
     updates_backlog = 0.0
     recent_scores = deque(maxlen=1000)          # episodic scores across all workers
     env_scores = [0 for _ in range(cfg.num_envs)]
+    best_avg = -1.0
+    best_path = run_dir / "best.pth"
 
     try:
         while global_steps < cfg.total_env_steps:
@@ -92,12 +92,16 @@ def train(cfg: Config):
                             dtype=torch.float32, device=device)
                         with torch.no_grad():
                             mean_q = float(agent.q(probe).mean().item())
+                        avg = float(np.mean(recent_scores)) if len(recent_scores) >= 50 else 0.0
                         logger.log_scalars(
                             global_steps,
                             loss=last_loss, mean_q=mean_q, eps=eps,
-                            buffer=len(buffer),
-                            avg_episode_score=float(np.mean(recent_scores) if recent_scores else 0.0),
+                            buffer=len(buffer), avg_episode_score=avg,
                         )
+                        # bank the best model seen so far (a late collapse can't erase it)
+                        if avg > best_avg:
+                            best_avg = avg
+                            agent.save(best_path)
 
             if global_steps % cfg.save_every_steps == 0:
                 ckpt.save_checkpoint(run_dir / f"steps_{global_steps}.pth", agent, cfg, global_steps)
@@ -109,19 +113,18 @@ def train(cfg: Config):
         logger.close()
 
     ckpt.save_checkpoint(run_dir / "final.pth", agent, cfg, global_steps)
-    agent.save(run_dir / "policy_final.pth")  # weights-only, ready for scripts/evaluate.py
-    print(f"Done. Checkpoints in {run_dir}")
-    print(f"To watch it play: python scripts/evaluate.py --model {run_dir / 'policy_final.pth'}")
+    agent.save(run_dir / "policy_final.pth")
 
+    # the model worth keeping: the best snapshot if we captured one, else the last
+    winner = best_path if best_path.exists() else (run_dir / "policy_final.pth")
+    print(f"Done. Checkpoints in {run_dir} (best avg score ~{best_avg:.1f})")
 
-def main():
-    ap = argparse.ArgumentParser(description="Train a DQN agent on Flappy Bird")
-    ap.add_argument("--config", default="configs/dqn.yaml")
-    args = ap.parse_args()
-    train(Config.from_yaml(args.config))
-
-
-if __name__ == "__main__":
-    import multiprocessing as mp
-    mp.freeze_support()
-    main()
+    if out_model is not None:
+        out_model = Path(out_model)
+        out_model.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(winner, out_model)
+        print(f"Promoted best model -> {out_model}")
+        print(f"Watch it:  flappy-rl eval 10 {out_model.name}")
+    else:
+        print(f"Best model: {winner}")
+    return run_dir

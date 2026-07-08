@@ -13,7 +13,11 @@ dependencies = [
     "pygame-ce",   # drop-in replacement for pygame with wheels for newer Pythons (import pygame)
     "numpy",
     "pyyaml",
+    "typer",       # command-line interface
 ]
+
+[project.scripts]
+flappy-rl = "flappy_rl.cli:main"
 
 [project.optional-dependencies]
 # Metric logging (TensorBoard). Training runs fine without it (falls back to console).
