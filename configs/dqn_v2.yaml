@@ -1,0 +1,68 @@
+# DQN V2 — same task/env as configs/dqn.yaml, with the algorithmic upgrades on.
+# Train:  just train dqn_v2 --config configs/dqn_v2.yaml
+# Watch:  just eval 5 dqn_v2.pth --config configs/dqn_v2.yaml   (config needed for the arch)
+
+run_name: dqn_v2
+seed: 42
+
+# --- rollout / environment ---
+num_envs: 15
+total_env_steps: 10000000
+max_steps_per_ep: 4000
+action_repeat: 2
+
+# --- replay buffer ---
+buffer_size: 1000000
+batch_size: 256
+warmup_steps: 100000
+
+# --- optimization / learning ---
+lr: 0.00025
+lr_final: 0.0                 # V2: cosine-decay LR to 0 (stabilizes late training)
+gamma: 0.99
+target_tau: 0.005
+grad_clip_norm: 5.0
+update_ratio: 1.0
+
+# --- exploration ---
+eps_start: 1.0
+eps_end: 0.05
+eps_decay_steps: 6000000
+
+# --- reward shaping (same tiered scheme as V1) ---
+reward_death: -1.0
+reward_pass_pipe: 1.0
+pass_edge_floor: 0.5
+reward_alive: 0.01
+reward_flap_pen: -0.003
+center_bonus_w: 0.30
+bonus_dx_window: 0.50
+
+# --- network (V2: dueling head + LayerNorm) ---
+state_dim: 7
+hidden: 512
+n_actions: 2
+dueling: true
+layernorm: true
+
+# --- V2: multi-step returns ---
+n_step: 3
+
+# --- V2: prioritized experience replay (sum-tree) ---
+prioritized: true
+per_alpha: 0.6
+per_beta_start: 0.4
+per_beta_end: 1.0
+per_eps: 0.00001
+
+# --- V2: stability / deployment ---
+ema_decay: 0.999              # deploy a Polyak snapshot, not the raw net
+
+# --- V2: greedy-eval checkpoint selection ---
+eval_every_steps: 250000      # score the deploy net on fixed seeds this often
+eval_episodes: 15
+eval_max_steps: 2000
+
+# --- logging / checkpointing ---
+log_every_updates: 5000
+save_every_steps: 500000
