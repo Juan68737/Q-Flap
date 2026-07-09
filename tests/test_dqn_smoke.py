@@ -51,8 +51,8 @@ def test_loss_decreases_on_fixed_target():
     device = torch.device("cpu")
     agent = DQNAgent(cfg, device)
     batch = _random_batch(cfg, device, cfg.batch_size)  # one fixed batch, overfit it
-    first = dqn_loss(batch, agent.q, agent.tgt, cfg.gamma).item()
+    first = dqn_loss(batch, agent.q, agent.tgt, cfg.gamma)[0].item()
     for _ in range(200):
         agent.update(batch)
-    last = dqn_loss(batch, agent.q, agent.tgt, cfg.gamma).item()
+    last = dqn_loss(batch, agent.q, agent.tgt, cfg.gamma)[0].item()
     assert last < first, f"loss did not decrease ({first:.4f} -> {last:.4f})"
