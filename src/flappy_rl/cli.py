@@ -55,6 +55,8 @@ def train(
 def eval(
     episodes: int = typer.Argument(10, help="number of games to play"),
     model: str = typer.Argument("dqn_final", help="model name (under models/) or a path"),
+    config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c",
+                               help="config matching the model's architecture (V2 models need their config)"),
     fps: int = typer.Option(45, "--fps"),
     max_steps: int = typer.Option(2000, "--max-steps", help="cap per game; 0 = unlimited"),
     action_repeat: int = typer.Option(None, "--action-repeat"),
@@ -62,7 +64,7 @@ def eval(
     """Watch a trained model play `episodes` games."""
     from .evaluation import evaluate as run_eval  # late import (opens a window)
 
-    cfg = Config.from_yaml(DEFAULT_CONFIG)
+    cfg = Config.from_yaml(config)
     run_eval(_resolve_model(model), cfg, episodes=episodes, fps=fps,
              max_steps=max_steps, action_repeat=action_repeat)
 

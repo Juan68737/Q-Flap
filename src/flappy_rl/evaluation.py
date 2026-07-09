@@ -10,18 +10,65 @@ import pygame
 import torch
 
 from .config import Config
-from .models.networks import QNet
+from .models.networks import build_qnet
 from .envs.flappy import Bird, Pipe, Base, WIN_WIDTH, WIN_HEIGHT, FLOOR, ASSETS_DIR
 from .envs.wrappers import get_state
 
 
 def load_policy(model_path, cfg, device):
-    net = QNet(cfg.state_dim, cfg.hidden, cfg.n_actions).to(device)
+    net = build_qnet(cfg).to(device)   # respects dueling / layernorm from the config
     obj = torch.load(model_path, map_location=device)
     state_dict = obj["model"] if isinstance(obj, dict) and "model" in obj else obj
     net.load_state_dict(state_dict)
     net.eval()
     return net
+
+
+@torch.no_grad()
+def score_policy(net, cfg, device, episodes=20, max_steps=3000):
+    """Headless greedy evaluation: mean pipes over `episodes` games (no window).
+
+    Used to select checkpoints on true greedy performance rather than noisy
+    epsilon-greedy training return. Assumes a headless SDL driver is already set
+    (the training process runs headless).
+    """
+    import random
+    ar = cfg.action_repeat
+    scores = []
+    for ep in range(episodes):
+        random.seed(100_000 + ep)  # fixed eval seeds -> comparable across checkpoints
+        bird, base, pipes = Bird(230, random.randint(250, 450)), Base(FLOOR), [Pipe(700)]
+        score, done, frame, action, steps = 0, False, 0, 0, 0
+        while not done and steps < max_steps:
+            steps += 1
+            if frame % ar == 0:
+                obs = torch.as_tensor(get_state(bird, pipes), dtype=torch.float32,
+                                      device=device).unsqueeze(0)
+                action = int(net(obs).argmax(1).item())
+            frame += 1
+            if action == 1:
+                bird.jump()
+            bird.move(); base.move()
+            rem, add_pipe = [], False
+            for p in pipes:
+                p.move()
+                if p.collide(bird, None):
+                    done = True
+                    break
+                if p.x + p.PIPE_TOP.get_width() < 0:
+                    rem.append(p)
+                if not p.passed and p.x < bird.x:
+                    p.passed = True
+                    add_pipe = True
+            if add_pipe:
+                score += 1
+                pipes.append(Pipe(WIN_WIDTH))
+            for r in rem:
+                pipes.remove(r)
+            if bird.y + bird.img.get_height() >= FLOOR or bird.y < -50:
+                done = True
+        scores.append(score)
+    return float(np.mean(scores))
 
 
 def _run_episode(net, win, clock, fps, bg_img, device, action_repeat, max_steps):
